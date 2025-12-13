@@ -1,0 +1,5 @@
+{
+  "name": "Pin2Site - Visual Replica Generator",
+  "description": "Upload a Pinterest layout or website design, and this app will clone the structure using HTML/Tailwind and use AI to generate matching assets.",
+  "requestFramePermissions": []
+}
