@@ -33,206 +33,320 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
                 min-height: 100vh;
                 padding-bottom: 50px;
                 overflow-x: hidden;
-                transition: background-color 0.5s ease;
               }
               
-              /* Update Flash Animation */
-              @keyframes flashIn {
-                0% { opacity: 0; transform: scale(0.98); }
-                100% { opacity: 1; transform: scale(1); }
-              }
-              body {
-                animation: flashIn 0.3s ease-out;
+              /* --- Editor UI Overlay Styles --- */
+              #pin2site-ui-layer {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 0; /* Let it not block layout */
+                z-index: 10000;
+                pointer-events: none;
               }
 
-              /* Editable Mode Styles */
-              body.editable-mode {
-                cursor: default;
+              .p2s-hover-box {
+                position: absolute;
+                border: 2px solid #6366f1;
+                pointer-events: none;
+                z-index: 10001;
+                transition: all 0.1s ease-out;
+                display: none;
+                box-shadow: 0 0 0 1px rgba(255,255,255,0.2);
+              }
+
+              .p2s-toolbar {
+                position: absolute;
+                top: -36px;
+                right: -2px;
+                display: flex;
+                gap: 6px;
+                background: #1e1b4b; /* Indigo-950 */
+                padding: 6px 10px;
+                border-radius: 6px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                pointer-events: auto;
+                opacity: 0;
+                transform: translateY(5px);
+                transition: opacity 0.2s, transform 0.2s;
               }
               
-              /* Hover Effects */
-              body.editable-mode *:hover:not(body):not(html) {
-                outline: 2px dashed rgba(99, 102, 241, 0.4);
+              .p2s-toolbar.visible {
+                opacity: 1;
+                transform: translateY(0);
+              }
+
+              .p2s-btn {
+                background: #4338ca; /* Indigo-700 */
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-family: sans-serif;
+                font-weight: 600;
                 cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                white-space: nowrap;
+                transition: background 0.2s;
+              }
+
+              .p2s-btn:hover {
+                background: #6366f1;
               }
               
-              /* Active Editing State */
-              .editing-active {
-                outline: 3px solid #6366f1 !important;
-                outline-offset: 2px;
-                box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
-                border-radius: 2px;
-                cursor: text !important;
-                position: relative;
-                z-index: 50;
-                background-color: rgba(255, 255, 255, 0.1);
+              .p2s-tag-label {
+                background: #312e81;
+                color: #a5b4fc;
+                font-size: 10px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                text-transform: uppercase;
+                font-weight: bold;
+                margin-right: 4px;
               }
 
-              /* Images */
-              body.editable-mode img {
-                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-              }
-              body.editable-mode img:hover {
-                filter: brightness(0.9);
-                outline: 3px solid #3b82f6;
-                transform: scale(1.01);
-              }
-              body.editable-mode img.drag-over {
-                outline: 4px dashed #10b981;
-                filter: brightness(1.1);
-                transform: scale(1.02);
-              }
-
-              /* Links */
-              body.editable-mode a {
-                border-bottom: 1px dotted transparent;
-              }
-              body.editable-mode a:hover {
-                border-bottom-color: #6366f1;
-              }
-
+              /* Hide scrollbar */
               ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+              /* Editing Active State */
+              .editing-active {
+                outline: none !important; /* Hide browser default focus */
+                background-color: rgba(99, 102, 241, 0.05);
+              }
             </style>
           </head>
-          <body class="${isEditable ? 'editable-mode' : ''}">
+          <body>
             ${html}
+            
+            <!-- Editor UI Container -->
+            <div id="pin2site-ui-layer">
+              <div id="p2s-hover-box" class="p2s-hover-box">
+                <div id="p2s-toolbar" class="p2s-toolbar">
+                   <!-- Buttons injected by JS -->
+                </div>
+              </div>
+            </div>
+
             <script>
               const isEditable = ${isEditable};
               
               if (isEditable) {
-                // We do NOT set body.contentEditable = true globally anymore.
-                // We use double-click to enter edit mode for specific elements.
-                document.body.spellcheck = false;
+                const hoverBox = document.getElementById('p2s-hover-box');
+                const toolbar = document.getElementById('p2s-toolbar');
+                let currentTarget = null;
+                let isEditingText = false;
 
-                // --- Link Handling (Right Click to Edit URL) ---
+                // --- Helper: Update Toolbar Position ---
+                const updateOverlay = () => {
+                  if (!currentTarget || isEditingText) {
+                    hoverBox.style.display = 'none';
+                    return;
+                  }
+                  
+                  const rect = currentTarget.getBoundingClientRect();
+                  const scrollTop = window.scrollY || document.documentElement.scrollTop;
+                  const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
+
+                  hoverBox.style.width = rect.width + 'px';
+                  hoverBox.style.height = rect.height + 'px';
+                  hoverBox.style.top = (rect.top + scrollTop) + 'px';
+                  hoverBox.style.left = (rect.left + scrollLeft) + 'px';
+                  hoverBox.style.display = 'block';
+                  
+                  // Ensure toolbar doesn't go off-screen top
+                  if (rect.top < 40) {
+                     toolbar.style.top = '100%';
+                     toolbar.style.bottom = 'auto';
+                     toolbar.style.marginTop = '4px';
+                  } else {
+                     toolbar.style.top = '-36px';
+                     toolbar.style.bottom = 'auto';
+                     toolbar.style.marginTop = '0';
+                  }
+                  
+                  toolbar.classList.add('visible');
+                };
+
+                // --- Helper: Build Toolbar Content ---
+                const showToolbar = (el) => {
+                  currentTarget = el;
+                  toolbar.innerHTML = ''; // Clear previous
+
+                  // Label
+                  const label = document.createElement('span');
+                  label.className = 'p2s-tag-label';
+                  label.innerText = el.tagName.toLowerCase();
+                  toolbar.appendChild(label);
+
+                  // Actions based on type
+                  if (el.tagName === 'IMG') {
+                     const btn = createBtn('fa-solid fa-image', 'Change Image', () => {
+                        window.parent.postMessage({ type: 'PIN2SITE_IMG_CLICK', id: el.id }, '*');
+                     });
+                     toolbar.appendChild(btn);
+                  } 
+                  else if (el.tagName === 'A') {
+                     const btnLink = createBtn('fa-solid fa-link', 'Edit Link', () => {
+                        const newHref = prompt("Edit Link URL:", el.getAttribute('href'));
+                        if (newHref !== null) {
+                           el.setAttribute('href', newHref);
+                           sendUpdate();
+                        }
+                     });
+                     toolbar.appendChild(btnLink);
+                     
+                     const btnText = createBtn('fa-solid fa-pen', 'Edit Text', () => {
+                        enterTextEditMode(el);
+                     });
+                     toolbar.appendChild(btnText);
+                  }
+                  else if (el.tagName === 'I' || el.tagName === 'SVG' || el.classList.contains('fa') || el.classList.contains('fa-solid')) {
+                     const btn = createBtn('fa-solid fa-icons', 'Swap Icon', () => {
+                        const currentClass = el.className;
+                        const newClass = prompt("Enter FontAwesome classes (e.g. 'fa-solid fa-house'):", currentClass);
+                        if (newClass) {
+                           el.className = newClass;
+                           sendUpdate();
+                        }
+                     });
+                     toolbar.appendChild(btn);
+                  }
+                  else {
+                     // Default text handling
+                     const btn = createBtn('fa-solid fa-pen', 'Edit Text', () => {
+                        enterTextEditMode(el);
+                     });
+                     toolbar.appendChild(btn);
+                  }
+                  
+                  updateOverlay();
+                };
+
+                const createBtn = (iconClass, text, onClick) => {
+                  const btn = document.createElement('button');
+                  btn.className = 'p2s-btn';
+                  btn.innerHTML = \`<i class="\${iconClass}"></i> \${text}\`;
+                  btn.onclick = (e) => {
+                    e.stopPropagation();
+                    onClick();
+                  };
+                  return btn;
+                };
+
+                const enterTextEditMode = (el) => {
+                   isEditingText = true;
+                   hoverBox.style.display = 'none'; // Hide overlay while typing
+                   el.contentEditable = "true";
+                   el.focus();
+                   el.classList.add('editing-active');
+                   
+                   // Select all text for easy replacement (optional)
+                   // const range = document.createRange();
+                   // range.selectNodeContents(el);
+                   // const sel = window.getSelection();
+                   // sel.removeAllRanges();
+                   // sel.addRange(range);
+                };
+
+                // --- Event Listeners ---
+
+                document.body.addEventListener('mouseover', (e) => {
+                   if (isEditingText) return;
+                   
+                   // Identify valid targets
+                   const el = e.target;
+                   if (el === document.body || el.id === 'pin2site-ui-layer' || el.closest('#pin2site-ui-layer')) return;
+                   
+                   // Filter strictly for meaningful elements
+                   const validTags = ['H1','H2','H3','H4','H5','H6','P','SPAN','A','BUTTON','IMG','LI', 'I'];
+                   
+                   // Logic: Is it a valid tag? OR does it have direct text content?
+                   const hasText = el.childNodes.length > 0 && el.childNodes[0].nodeType === 3 && el.innerText.trim().length > 0;
+                   const isValidTag = validTags.includes(el.tagName);
+                   const isIcon = el.classList.contains('fa') || el.classList.contains('fa-solid') || el.tagName === 'SVG';
+
+                   if (isValidTag || hasText || isIcon) {
+                      e.stopPropagation();
+                      showToolbar(el);
+                   }
+                });
+
+                // Clear overlay when leaving the body or hovering invalid areas
+                document.body.addEventListener('mouseout', (e) => {
+                   if (e.relatedTarget === null || e.relatedTarget.tagName === 'HTML') {
+                      // Left the iframe
+                      hoverBox.style.display = 'none';
+                   }
+                });
+                
+                // Update position on scroll
+                window.addEventListener('scroll', updateOverlay);
+                window.addEventListener('resize', updateOverlay);
+
+                // --- Global Interactions ---
+
+                // Prevent links from navigating
                 document.addEventListener('click', (e) => {
                   const link = e.target.closest('a');
                   if (link) e.preventDefault();
                 });
-
-                document.addEventListener('contextmenu', (e) => {
-                  const link = e.target.closest('a');
-                  if (!link) return;
-                  
-                  e.preventDefault();
-                  e.stopPropagation();
-                  
-                  const currentHref = link.getAttribute('href') || '#';
-                  const newHref = prompt("🔗 Edit Link URL:", currentHref);
-                  
-                  if (newHref !== null) {
-                    link.setAttribute('href', newHref);
-                    sendUpdate();
-                  }
-                });
-
-                // --- Double Click to Edit (Text & Images) ---
-                document.addEventListener('dblclick', (e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  
-                  const target = e.target;
-
-                  // 1. Image Handling
-                  if (target.tagName === 'IMG') {
-                    // Visual feedback click
-                    target.style.transform = 'scale(0.95)';
-                    setTimeout(() => target.style.transform = '', 100);
-                    
-                    window.parent.postMessage({ type: 'PIN2SITE_IMG_CLICK', id: target.id }, '*');
-                    return;
-                  }
-
-                  // 2. Text Handling
-                  // Find the closest block-level element or span that makes sense to edit
-                  // Use the target directly if it contains text, or go up if needed.
-                  // For simplicity in this "Wix-like" feel, we edit the target directly.
-                  
-                  // Make editable
-                  target.contentEditable = "true";
-                  target.focus();
-                  target.classList.add('editing-active');
-                  
-                  // Highlight visual cue
-                  // We don't select all text to allow appending, but focusing is key.
-                });
-
-                // --- Save & Exit Edit Mode on Blur ---
+                
+                // Exit edit mode
                 document.addEventListener('blur', (e) => {
-                  const target = e.target;
-                  if (target.isContentEditable) {
-                    target.contentEditable = "false";
-                    target.classList.remove('editing-active');
-                    sendUpdate();
-                  }
-                }, true); // Capture phase is important for blur
+                   if (e.target.isContentEditable) {
+                      e.target.contentEditable = "false";
+                      e.target.classList.remove('editing-active');
+                      isEditingText = false;
+                      sendUpdate();
+                   }
+                }, true);
+                
+                // Double click shortcuts
+                document.addEventListener('dblclick', (e) => {
+                   const el = e.target;
+                   if (el.tagName === 'IMG') {
+                      window.parent.postMessage({ type: 'PIN2SITE_IMG_CLICK', id: el.id }, '*');
+                   } else {
+                      // Try to edit text
+                       if (!el.closest('#pin2site-ui-layer')) {
+                          enterTextEditMode(el);
+                       }
+                   }
+                });
 
-                // --- Drag & Drop for Images ---
-                document.querySelectorAll('img').forEach(img => {
-                   img.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.dataTransfer.dropEffect = 'copy';
-                    img.classList.add('drag-over');
-                  });
-                  
-                  img.addEventListener('dragleave', (e) => {
-                     e.preventDefault();
-                     e.stopPropagation();
-                     img.classList.remove('drag-over');
-                  });
-                  
-                  img.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    img.classList.remove('drag-over');
-                    
-                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                      const file = e.dataTransfer.files[0];
-                      if (file.type.startsWith('image/')) {
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                              img.src = reader.result;
-                              // Flash effect
-                              img.style.transition = 'filter 0.5s';
-                              img.style.filter = 'brightness(1.5)';
-                              setTimeout(() => img.style.filter = '', 500);
+                // --- Sync Logic ---
+                let timeout;
+                const sendUpdate = () => {
+                   // Remove our UI layer before sending HTML
+                   const uiLayer = document.getElementById('pin2site-ui-layer');
+                   const parent = uiLayer.parentNode;
+                   parent.removeChild(uiLayer);
+                   
+                   const cleanHtml = document.body.innerHTML;
+                   
+                   // Put it back
+                   parent.appendChild(uiLayer);
 
-                              window.parent.postMessage({ 
-                                  type: 'PIN2SITE_IMG_DROP', 
-                                  id: e.target.id || 'img-' + Date.now(),
-                                  data: reader.result 
-                              }, '*');
-                          };
-                          reader.readAsDataURL(file);
-                      }
-                    }
-                  });
+                   window.parent.postMessage({ type: 'PIN2SITE_HTML_UPDATE', html: cleanHtml }, '*');
+                }
+
+                document.addEventListener('input', (e) => {
+                   if (!isEditable) return;
+                   const target = e.target;
+                   if (!target.isContentEditable) return;
+
+                   window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: true }, '*');
+                   clearTimeout(timeout);
+                   timeout = setTimeout(() => {
+                     sendUpdate();
+                     window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: false }, '*');
+                   }, 800);
                 });
               }
-
-              // --- Sync Logic ---
-              let timeout;
-              const sendUpdate = () => {
-                 window.parent.postMessage({ type: 'PIN2SITE_HTML_UPDATE', html: document.body.innerHTML }, '*');
-              }
-
-              // Only listen to input on currently editable elements
-              document.addEventListener('input', (e) => {
-                 if (!isEditable) return;
-                 
-                 const target = e.target;
-                 if (!target.isContentEditable) return;
-
-                 window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: true }, '*');
-                 
-                 clearTimeout(timeout);
-                 timeout = setTimeout(() => {
-                   sendUpdate();
-                   window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: false }, '*');
-                 }, 800);
-              });
-              
             </script>
           </body>
         </html>
@@ -243,11 +357,14 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
     const doc = iframe.contentDocument;
     if (doc && doc.body) {
        if (isUserTypingRef.current) return;
-       // We skip check for identical HTML to allow re-applying scripts if needed, 
-       // but strictly mostly rely on React re-renders. 
-       // To prevent flashing on every keystroke from parent history updates, 
-       // we check content match if it's not a structure change.
-       if (doc.body.innerHTML === html) return;
+       // Basic check to avoid redraws
+       // We can't strictly compare HTML anymore because we inject the UI layer.
+       // So we check if the cleaned content matches.
+       const currentBody = doc.body.cloneNode(true);
+       const ui = currentBody.querySelector('#pin2site-ui-layer');
+       if (ui) ui.remove();
+       
+       if (currentBody.innerHTML === html) return;
     }
 
     writeContent();
