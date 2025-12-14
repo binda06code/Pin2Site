@@ -3,9 +3,10 @@ import React, { useEffect, useRef } from 'react';
 interface PreviewFrameProps {
   html: string;
   isEditable: boolean;
+  deviceMode: 'desktop' | 'tablet' | 'mobile';
 }
 
-const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable }) => {
+const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMode }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   
   // We track the last HTML we *intentionally* rendered from props
@@ -35,7 +36,7 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable }) => {
                 background-color: transparent; 
                 min-height: 100vh;
                 padding-bottom: 50px;
-                overflow-x: hidden; /* Prevent horizontal scroll bars */
+                overflow-x: hidden;
               }
               /* Visual cues for editing */
               body.editable {
@@ -192,12 +193,10 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable }) => {
     const doc = iframe.contentDocument;
     if (doc && doc.body) {
        // If the user is actively typing (according to our ref), SKIP the write.
-       // The ref is updated via message from iframe.
        if (isUserTypingRef.current) {
          return;
        }
-       
-       // Compare roughly if content is same to avoid redraw
+       // Compare roughly
        if (doc.body.innerHTML === html) return;
     }
 
@@ -205,7 +204,6 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable }) => {
 
   }, [html, isEditable]);
 
-  // Listener for typing status to block re-renders
   useEffect(() => {
     const handleMsg = (e: MessageEvent) => {
       if (e.data.type === 'PIN2SITE_USER_TYPING') {
@@ -216,30 +214,58 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable }) => {
     return () => window.removeEventListener('message', handleMsg);
   }, []);
 
+  // Calculate width styles based on device mode
+  const getContainerStyles = () => {
+    switch (deviceMode) {
+      case 'mobile':
+        return 'w-[375px] my-4 border-x-8 border-y-[40px] border-gray-800 rounded-[30px] shadow-xl';
+      case 'tablet':
+        return 'w-[768px] my-4 border-x-8 border-y-[40px] border-gray-800 rounded-[30px] shadow-xl';
+      default:
+        return 'w-full h-full rounded-lg shadow-2xl';
+    }
+  };
+
   return (
-    <div className="w-full h-full bg-white rounded-lg shadow-2xl overflow-hidden relative flex flex-col">
-      <div className="h-8 bg-gray-100 border-b border-gray-200 flex items-center px-4 justify-between shrink-0">
-        <div className="flex space-x-2">
-          <div className="w-3 h-3 rounded-full bg-red-400"></div>
-          <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
-          <div className="w-3 h-3 rounded-full bg-green-400"></div>
+    <div className={`transition-all duration-300 mx-auto flex flex-col bg-white overflow-hidden relative ${getContainerStyles()}`} style={{ height: deviceMode === 'desktop' ? '100%' : '800px' }}>
+      
+      {/* Fake Device UI elements for mobile/tablet */}
+      {deviceMode !== 'desktop' && (
+        <div className="absolute top-0 left-0 w-full h-[40px] flex justify-center items-center pointer-events-none">
+          <div className="w-20 h-4 bg-gray-700 rounded-full"></div>
         </div>
-        <div className="flex-1 text-center">
-            {isEditable ? (
-                <span className="text-xs font-bold text-indigo-600 animate-pulse">
-                    <i className="fa-solid fa-pen mr-1"></i> Visual Editor Active
-                </span>
-            ) : (
-                <span className="text-xs text-gray-400">Preview Mode</span>
-            )}
+      )}
+
+      {/* Header only for desktop mode as mobile/tablet have "device bezels" */}
+      {deviceMode === 'desktop' && (
+        <div className="h-8 bg-gray-100 border-b border-gray-200 flex items-center px-4 justify-between shrink-0">
+          <div className="flex space-x-2">
+            <div className="w-3 h-3 rounded-full bg-red-400"></div>
+            <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+            <div className="w-3 h-3 rounded-full bg-green-400"></div>
+          </div>
+          <div className="flex-1 text-center">
+              {isEditable ? (
+                  <span className="text-xs font-bold text-indigo-600 animate-pulse">
+                      <i className="fa-solid fa-pen mr-1"></i> Visual Editor Active
+                  </span>
+              ) : (
+                  <span className="text-xs text-gray-400">Preview Mode</span>
+              )}
+          </div>
         </div>
-      </div>
+      )}
+
       <iframe
         ref={iframeRef}
         title="Live Preview"
         className="w-full flex-1 border-none bg-white"
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
       />
+      
+      {deviceMode !== 'desktop' && (
+         <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-gray-700 rounded-full pointer-events-none"></div>
+      )}
     </div>
   );
 };

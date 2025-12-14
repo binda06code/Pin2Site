@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ConfigurationPanel from './components/ConfigurationPanel';
 import PreviewFrame from './components/PreviewFrame';
+import CodeEditor from './components/CodeEditor';
 import Dashboard from './components/Dashboard';
 import { AppState, ImageToGenerate, UserPreferences, Project } from './types';
 import { analyzeLayoutAndGenerateCode, fileToGenerativePart, generateAssetImage, refineHtmlWithAI } from './services/geminiService';
@@ -24,6 +25,10 @@ const App: React.FC = () => {
   const [isEditable, setIsEditable] = useState(false);
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  
+  // Viewer State
+  const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
+  const [deviceMode, setDeviceMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
 
   const generatedHtml = historyIndex >= 0 ? history[historyIndex] : '';
 
@@ -56,7 +61,6 @@ const App: React.FC = () => {
   };
 
   const pushToHistory = (html: string) => {
-    // Basic optimization: don't push if identical to current top
     if (historyIndex >= 0 && history[historyIndex] === html) return;
 
     const newHistory = history.slice(0, historyIndex + 1);
@@ -73,8 +77,6 @@ const App: React.FC = () => {
 
         if (event.data.type === 'PIN2SITE_HTML_UPDATE') {
             const newHtml = event.data.html;
-            // Only update if truly different
-            // We strip whitespace to avoid phantom updates
             if (history[historyIndex]?.trim() !== newHtml?.trim()) {
                  pushToHistory(newHtml);
             }
@@ -87,18 +89,15 @@ const App: React.FC = () => {
 
         if (event.data.type === 'PIN2SITE_IMG_DROP') {
              const { id, data } = event.data;
-             // Ensure we update DOM and history
              updateImageInDom(id, data);
         }
      };
 
      window.addEventListener('message', handleMessage);
      return () => window.removeEventListener('message', handleMessage);
-  }, [history, historyIndex, activeProjectId]); // Correct dependencies to ensure history access
-
+  }, [history, historyIndex, activeProjectId]);
 
   const updateImageInDom = (imgId: string, base64Url: string) => {
-     // Use current history state directly from the hook scope via dependency
      if (!generatedHtml) return;
 
      const parser = new DOMParser();
@@ -107,7 +106,7 @@ const App: React.FC = () => {
      
      if (img) {
         img.setAttribute('src', base64Url);
-        img.setAttribute('srcset', ''); // Clear srcset
+        img.setAttribute('srcset', '');
         const newHtml = doc.body.innerHTML;
         pushToHistory(newHtml);
         addLog("Image updated.");
@@ -132,6 +131,10 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCodeUpdate = (newHtml: string) => {
+     pushToHistory(newHtml);
+  };
+
 
   // --- Actions ---
 
@@ -146,6 +149,8 @@ const App: React.FC = () => {
     setPreferences({ theme: '', colorPalette: '' });
     setView('editor');
     setIsEditable(false);
+    setViewMode('preview'); // Default to preview
+    setDeviceMode('desktop');
 
     try {
       const base64Data = await fileToGenerativePart(file);
@@ -188,6 +193,8 @@ const App: React.FC = () => {
     setAppState(AppState.COMPLETE);
     setView('editor');
     setIsEditable(false);
+    setViewMode('preview');
+    setDeviceMode('desktop');
   };
 
   const handleDeleteProject = (id: string) => {
@@ -213,7 +220,6 @@ const App: React.FC = () => {
   const handleRefine = async (instruction: string, sectionId?: string) => {
     if (!generatedHtml) return;
     
-    // Pass the base64 reference image to context if available (strip prefix)
     const base64Ref = uploadedImage ? uploadedImage.split(',')[1] : undefined;
 
     if (sectionId) {
@@ -340,21 +346,78 @@ const App: React.FC = () => {
         setIsEditable={setIsEditable}
       />
 
-      <main className="flex-1 relative p-4 lg:p-8 bg-black/50 flex items-center justify-center">
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-           <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-900/10 rounded-full blur-[100px]"></div>
+      <main className="flex-1 relative bg-black/50 flex flex-col">
+        {/* View Controls Toolbar */}
+        <div className="h-14 bg-[#1a1a1a] border-b border-gray-800 flex items-center justify-between px-6 shrink-0 z-20">
+           
+           {/* Device Toggle */}
+           <div className="flex bg-black rounded-lg p-1 border border-gray-800">
+              <button 
+                onClick={() => setDeviceMode('desktop')}
+                className={`w-10 h-8 flex items-center justify-center rounded transition-colors ${deviceMode === 'desktop' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                title="Desktop View"
+              >
+                <i className="fa-solid fa-desktop"></i>
+              </button>
+              <button 
+                onClick={() => setDeviceMode('tablet')}
+                className={`w-10 h-8 flex items-center justify-center rounded transition-colors ${deviceMode === 'tablet' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                title="Tablet View"
+              >
+                <i className="fa-solid fa-tablet-screen-button"></i>
+              </button>
+              <button 
+                onClick={() => setDeviceMode('mobile')}
+                className={`w-10 h-8 flex items-center justify-center rounded transition-colors ${deviceMode === 'mobile' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                title="Mobile View"
+              >
+                <i className="fa-solid fa-mobile-screen"></i>
+              </button>
+           </div>
+
+           {/* View Mode Switcher */}
+           <div className="flex space-x-4">
+              <button 
+                onClick={() => setViewMode('preview')}
+                className={`flex items-center text-sm font-medium transition-colors ${viewMode === 'preview' ? 'text-indigo-400' : 'text-gray-400 hover:text-white'}`}
+              >
+                 <i className="fa-solid fa-eye mr-2"></i> Preview
+              </button>
+              <button 
+                onClick={() => setViewMode('code')}
+                className={`flex items-center text-sm font-medium transition-colors ${viewMode === 'code' ? 'text-indigo-400' : 'text-gray-400 hover:text-white'}`}
+              >
+                 <i className="fa-solid fa-code mr-2"></i> Code
+              </button>
+           </div>
         </div>
 
-        {generatedHtml ? (
-          <div className="w-full h-full max-w-7xl animate-fade-in-up flex flex-col">
-            <PreviewFrame html={generatedHtml} isEditable={isEditable} />
-          </div>
-        ) : (
-          <div className="text-center text-gray-500 max-w-md">
-             <div className="mb-6 mx-auto w-12 h-12 border-2 border-t-indigo-500 border-r-indigo-500 border-gray-800 rounded-full animate-spin"></div>
-             <p>Processing with Pro Vision...</p>
-          </div>
-        )}
+        <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-gray-900/50 p-4 lg:p-8">
+           <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
+             <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-900/10 rounded-full blur-[100px]"></div>
+           </div>
+
+           {generatedHtml ? (
+              <div className="w-full h-full flex justify-center">
+                {viewMode === 'preview' ? (
+                   <PreviewFrame 
+                      html={generatedHtml} 
+                      isEditable={isEditable} 
+                      deviceMode={deviceMode}
+                   />
+                ) : (
+                   <div className="w-full max-w-5xl h-full animate-fade-in-up">
+                      <CodeEditor html={generatedHtml} onUpdate={handleCodeUpdate} />
+                   </div>
+                )}
+              </div>
+           ) : (
+              <div className="text-center text-gray-500 max-w-md">
+                 <div className="mb-6 mx-auto w-12 h-12 border-2 border-t-indigo-500 border-r-indigo-500 border-gray-800 rounded-full animate-spin"></div>
+                 <p>Processing with Pro Vision...</p>
+              </div>
+           )}
+        </div>
       </main>
 
       {/* Hidden Input for Image Uploads */}
