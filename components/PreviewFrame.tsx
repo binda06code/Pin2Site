@@ -8,16 +8,12 @@ interface PreviewFrameProps {
 
 const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMode }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  
-  // We track the last HTML we *intentionally* rendered from props
-  // AND what the user has typed to avoid overwriting it.
   const isUserTypingRef = useRef(false);
 
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
-    // Helper to write content
     const writeContent = () => {
       const doc = iframe.contentDocument;
       if (!doc) return;
@@ -37,88 +33,143 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
                 min-height: 100vh;
                 padding-bottom: 50px;
                 overflow-x: hidden;
+                transition: background-color 0.5s ease;
               }
-              /* Visual cues for editing */
-              body.editable {
-                cursor: text;
+              
+              /* Update Flash Animation */
+              @keyframes flashIn {
+                0% { opacity: 0; transform: scale(0.98); }
+                100% { opacity: 1; transform: scale(1); }
               }
-              body.editable *:hover {
-                outline: 1px dashed #6366f1;
+              body {
+                animation: flashIn 0.3s ease-out;
               }
-              body.editable img {
+
+              /* Editable Mode Styles */
+              body.editable-mode {
+                cursor: default;
+              }
+              
+              /* Hover Effects */
+              body.editable-mode *:hover:not(body):not(html) {
+                outline: 2px dashed rgba(99, 102, 241, 0.4);
                 cursor: pointer;
-                transition: all 0.2s;
               }
-              body.editable img:hover {
-                outline: 3px solid #3b82f6;
-                opacity: 0.9;
-              }
-              body.editable img.drag-over {
-                outline: 3px dashed #10b981;
-                opacity: 0.7;
-              }
-              body.editable a {
-                cursor: alias; /* Indicate link editing */
+              
+              /* Active Editing State */
+              .editing-active {
+                outline: 3px solid #6366f1 !important;
+                outline-offset: 2px;
+                box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+                border-radius: 2px;
+                cursor: text !important;
                 position: relative;
-              }
-              body.editable a:hover::after {
-                content: "Double-click to edit link";
-                position: absolute;
-                bottom: 100%;
-                left: 0;
-                background: #333;
-                color: #fff;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 10px;
-                white-space: nowrap;
                 z-index: 50;
-                pointer-events: none;
+                background-color: rgba(255, 255, 255, 0.1);
               }
+
+              /* Images */
+              body.editable-mode img {
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+              }
+              body.editable-mode img:hover {
+                filter: brightness(0.9);
+                outline: 3px solid #3b82f6;
+                transform: scale(1.01);
+              }
+              body.editable-mode img.drag-over {
+                outline: 4px dashed #10b981;
+                filter: brightness(1.1);
+                transform: scale(1.02);
+              }
+
+              /* Links */
+              body.editable-mode a {
+                border-bottom: 1px dotted transparent;
+              }
+              body.editable-mode a:hover {
+                border-bottom-color: #6366f1;
+              }
+
               ::-webkit-scrollbar { width: 0px; background: transparent; }
             </style>
           </head>
-          <body class="${isEditable ? 'editable' : ''}">
+          <body class="${isEditable ? 'editable-mode' : ''}">
             ${html}
             <script>
               const isEditable = ${isEditable};
               
               if (isEditable) {
-                document.body.contentEditable = "true";
+                // We do NOT set body.contentEditable = true globally anymore.
+                // We use double-click to enter edit mode for specific elements.
                 document.body.spellcheck = false;
 
-                // --- Link Editing ---
-                document.querySelectorAll('a').forEach(a => {
-                  a.addEventListener('click', (e) => {
-                    e.preventDefault(); // Stop navigation
-                  });
-                  
-                  a.addEventListener('dblclick', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const currentHref = a.getAttribute('href') || '#';
-                    const newHref = prompt("Enter new link URL:", currentHref);
-                    if (newHref !== null) {
-                      a.setAttribute('href', newHref);
-                      // Send update immediately
-                      window.parent.postMessage({ type: 'PIN2SITE_HTML_UPDATE', html: document.body.innerHTML }, '*');
-                    }
-                  });
+                // --- Link Handling (Right Click to Edit URL) ---
+                document.addEventListener('click', (e) => {
+                  const link = e.target.closest('a');
+                  if (link) e.preventDefault();
                 });
 
-                // --- Image Interaction ---
-                document.querySelectorAll('img').forEach(img => {
-                  img.contentEditable = "false"; 
+                document.addEventListener('contextmenu', (e) => {
+                  const link = e.target.closest('a');
+                  if (!link) return;
                   
-                  // Click to upload
-                  img.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.parent.postMessage({ type: 'PIN2SITE_IMG_CLICK', id: e.target.id }, '*');
-                  });
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  const currentHref = link.getAttribute('href') || '#';
+                  const newHref = prompt("🔗 Edit Link URL:", currentHref);
+                  
+                  if (newHref !== null) {
+                    link.setAttribute('href', newHref);
+                    sendUpdate();
+                  }
+                });
 
-                  // Drag & Drop
-                  img.addEventListener('dragover', (e) => {
+                // --- Double Click to Edit (Text & Images) ---
+                document.addEventListener('dblclick', (e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  
+                  const target = e.target;
+
+                  // 1. Image Handling
+                  if (target.tagName === 'IMG') {
+                    // Visual feedback click
+                    target.style.transform = 'scale(0.95)';
+                    setTimeout(() => target.style.transform = '', 100);
+                    
+                    window.parent.postMessage({ type: 'PIN2SITE_IMG_CLICK', id: target.id }, '*');
+                    return;
+                  }
+
+                  // 2. Text Handling
+                  // Find the closest block-level element or span that makes sense to edit
+                  // Use the target directly if it contains text, or go up if needed.
+                  // For simplicity in this "Wix-like" feel, we edit the target directly.
+                  
+                  // Make editable
+                  target.contentEditable = "true";
+                  target.focus();
+                  target.classList.add('editing-active');
+                  
+                  // Highlight visual cue
+                  // We don't select all text to allow appending, but focusing is key.
+                });
+
+                // --- Save & Exit Edit Mode on Blur ---
+                document.addEventListener('blur', (e) => {
+                  const target = e.target;
+                  if (target.isContentEditable) {
+                    target.contentEditable = "false";
+                    target.classList.remove('editing-active');
+                    sendUpdate();
+                  }
+                }, true); // Capture phase is important for blur
+
+                // --- Drag & Drop for Images ---
+                document.querySelectorAll('img').forEach(img => {
+                   img.addEventListener('dragover', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     e.dataTransfer.dropEffect = 'copy';
@@ -141,9 +192,12 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
                       if (file.type.startsWith('image/')) {
                           const reader = new FileReader();
                           reader.onload = () => {
-                              // Optimistic update for instant feedback
                               img.src = reader.result;
-                              
+                              // Flash effect
+                              img.style.transition = 'filter 0.5s';
+                              img.style.filter = 'brightness(1.5)';
+                              setTimeout(() => img.style.filter = '', 500);
+
                               window.parent.postMessage({ 
                                   type: 'PIN2SITE_IMG_DROP', 
                                   id: e.target.id || 'img-' + Date.now(),
@@ -157,30 +211,27 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
                 });
               }
 
-              // --- Text Editing Sync ---
+              // --- Sync Logic ---
               let timeout;
-              
               const sendUpdate = () => {
                  window.parent.postMessage({ type: 'PIN2SITE_HTML_UPDATE', html: document.body.innerHTML }, '*');
               }
 
-              document.body.addEventListener('input', function(e) {
-                if (!isEditable) return;
-                
-                // Signal parent that user is typing to prevent clobbering focus
-                window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: true }, '*');
+              // Only listen to input on currently editable elements
+              document.addEventListener('input', (e) => {
+                 if (!isEditable) return;
+                 
+                 const target = e.target;
+                 if (!target.isContentEditable) return;
 
-                clearTimeout(timeout);
-                timeout = setTimeout(() => {
-                  sendUpdate();
-                  window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: false }, '*');
-                }, 800);
+                 window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: true }, '*');
+                 
+                 clearTimeout(timeout);
+                 timeout = setTimeout(() => {
+                   sendUpdate();
+                   window.parent.postMessage({ type: 'PIN2SITE_USER_TYPING', isTyping: false }, '*');
+                 }, 800);
               });
-
-              // Save on blur
-              document.body.addEventListener('blur', function(e) {
-                 if (isEditable) sendUpdate();
-              }, true);
               
             </script>
           </body>
@@ -189,14 +240,13 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
       doc.close();
     };
 
-    // Check if we actually need to update
     const doc = iframe.contentDocument;
     if (doc && doc.body) {
-       // If the user is actively typing (according to our ref), SKIP the write.
-       if (isUserTypingRef.current) {
-         return;
-       }
-       // Compare roughly
+       if (isUserTypingRef.current) return;
+       // We skip check for identical HTML to allow re-applying scripts if needed, 
+       // but strictly mostly rely on React re-renders. 
+       // To prevent flashing on every keystroke from parent history updates, 
+       // we check content match if it's not a structure change.
        if (doc.body.innerHTML === html) return;
     }
 
@@ -214,7 +264,6 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
     return () => window.removeEventListener('message', handleMsg);
   }, []);
 
-  // Calculate width styles based on device mode
   const getContainerStyles = () => {
     switch (deviceMode) {
       case 'mobile':
@@ -227,16 +276,14 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
   };
 
   return (
-    <div className={`transition-all duration-300 mx-auto flex flex-col bg-white overflow-hidden relative ${getContainerStyles()}`} style={{ height: deviceMode === 'desktop' ? '100%' : '800px' }}>
+    <div className={`transition-all duration-500 ease-in-out mx-auto flex flex-col bg-white overflow-hidden relative ${getContainerStyles()}`} style={{ height: deviceMode === 'desktop' ? '100%' : '800px' }}>
       
-      {/* Fake Device UI elements for mobile/tablet */}
       {deviceMode !== 'desktop' && (
-        <div className="absolute top-0 left-0 w-full h-[40px] flex justify-center items-center pointer-events-none">
+        <div className="absolute top-0 left-0 w-full h-[40px] flex justify-center items-center pointer-events-none z-10">
           <div className="w-20 h-4 bg-gray-700 rounded-full"></div>
         </div>
       )}
 
-      {/* Header only for desktop mode as mobile/tablet have "device bezels" */}
       {deviceMode === 'desktop' && (
         <div className="h-8 bg-gray-100 border-b border-gray-200 flex items-center px-4 justify-between shrink-0">
           <div className="flex space-x-2">
@@ -246,8 +293,12 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
           </div>
           <div className="flex-1 text-center">
               {isEditable ? (
-                  <span className="text-xs font-bold text-indigo-600 animate-pulse">
-                      <i className="fa-solid fa-pen mr-1"></i> Visual Editor Active
+                  <span className="text-xs font-bold text-indigo-600 flex items-center justify-center gap-2">
+                     <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                     </span>
+                     Interactive Editor Active
                   </span>
               ) : (
                   <span className="text-xs text-gray-400">Preview Mode</span>
@@ -264,7 +315,7 @@ const PreviewFrame: React.FC<PreviewFrameProps> = ({ html, isEditable, deviceMod
       />
       
       {deviceMode !== 'desktop' && (
-         <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-gray-700 rounded-full pointer-events-none"></div>
+         <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-gray-700 rounded-full pointer-events-none z-10"></div>
       )}
     </div>
   );
